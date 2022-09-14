@@ -117,7 +117,7 @@ namespace stcBot
 											channel = d[2][1..];
 
 											logger.Info("USER JOIN detected");
-											if (channel.ToLower() != announceChannel.ToLower())   // be quiet on the #announce channel
+											if (channel.ToLower() != announceChannel.ToLower() && user != botSettings.Nick)   // be quiet on the #announce channel
 											{
 												SendMessageToServer(writer, @$"PRIVMSG {channel} :Welcome {user}");
 											}
