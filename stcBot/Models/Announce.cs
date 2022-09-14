@@ -2,12 +2,12 @@
 {
     public class Announce
     {
-        public string Category { get; set; }
-        public string Type { get; set; }
-        public string Name { get; set; }
-        public string Uploader { get; set; }
-        public string Url { get; set; }
-        public string Size { get; set; }
-        public string FreeLeech { get; set; }
+        public string Category { get; set; } = string.Empty;
+        public string Type { get; set; } = string.Empty;
+        public string Name { get; set; } = string.Empty;
+        public string Uploader { get; set; } = string.Empty;
+        public string Url { get; set; } = string.Empty;
+        public string Size { get; set; } = string.Empty;
+        public string FreeLeech { get; set; } = string.Empty;
     }
 }
