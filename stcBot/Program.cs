@@ -14,6 +14,7 @@ namespace stcBot
 		private static readonly Logger logger = LogManager.GetCurrentClassLogger();
 		static bool OkToCheckRSS = false;
 		static string rssFeed = string.Empty;
+		static string freeleechRssFeed = string.Empty;
 		static string announceChannel = string.Empty;
 		static BotSettings? botSettings;
 		static string torrentHistoryLogFileName = string.Empty;
@@ -39,6 +40,9 @@ namespace stcBot
 
 			// Path for RSS Feed
 			rssFeed = config.GetValue<string>("RSSFeed");
+
+			// Path for Freeleech RSS Feed
+			freeleechRssFeed = config.GetValue<string>("FreeleechRSSFeed");
 
 			// Announce channel
 			announceChannel = config.GetValue<string>("announceChannel");
@@ -142,15 +146,32 @@ namespace stcBot
 							}
 							if (OkToCheckRSS)
 							{
-								List<Announce>? announcments = ReadRSSFeed();
-
-								foreach (Announce item in announcments)
+								List<Announce>? flAnnouncments = ReadRSSFeed(freeleechRssFeed, true);
+								if (flAnnouncments.Any())
 								{
-									if (!HasTorrentBeenAnnounced(item.Name))
+									foreach (Announce item in flAnnouncments)
 									{
-										AnnounceTorrent(writer, item);
+										if (!HasTorrentBeenAnnounced(item.Name))
+										{
+											AnnounceTorrent(writer, item);
+										}
 									}
 								}
+
+								List<Announce>? announcments = ReadRSSFeed(rssFeed, false);
+
+								if (announcments.Any())
+								{
+									foreach (Announce item in announcments)
+									{
+										if (!HasTorrentBeenAnnounced(item.Name))
+										{
+											AnnounceTorrent(writer, item);
+										}
+									}
+								}
+
+
 								OkToCheckRSS = false;
 							}
 						}
@@ -176,12 +197,14 @@ namespace stcBot
 		/// Read the RSS feed
 		/// </summary>
 		/// <returns>List of announcements</returns>
-		public static List<Announce>? ReadRSSFeed()
+		public static List<Announce>? ReadRSSFeed(string url, bool freeleech)
 		{
 			try
 			{
-				string url = rssFeed;
 				logger.Info($"Reading {url} RSS for new torrents");
+				
+				XmlReaderSettings settings = new XmlReaderSettings();
+				settings.DtdProcessing = DtdProcessing.Parse;
 				XmlReader reader = XmlReader.Create(url);
 				SyndicationFeed feed = SyndicationFeed.Load(reader);
 				reader.Close();
@@ -189,7 +212,7 @@ namespace stcBot
 				foreach (SyndicationItem item in feed.Items)
 				{
 					// This will split the item.Summary into multiple parts
-					string newItem = Regex.Replace(item.Summary.Text, @"\s+", " ").Replace("<br>", "").Replace("|", "").Replace("<p>", "").Replace("&#039;", "'");
+					string newItem = Regex.Replace(item.Summary.Text, @"\s+", " ").Replace("<br>", "").Replace("|", "").Replace("<p>", "").Replace("&#039;", "'").Replace("Uploader: Anonymous Uploader", "Uploader: Uploaded By Anonymous Uploader");
 					List<string> itemSummary = new();
 					itemSummary = newItem.Replace("<p> Name", "Name: [").Replace("Category:", ";Category: [").Replace("Type:", ";Type: [").Replace("Resolution:", ";Resolution: [").Replace("Size:", ";Size: [").Replace("Uploaded:", ";Uploaded:").Replace("Seeders:", ";Seeders:").Replace("Leechers:", ";Leechers:").Replace("Completed:", ";Completed").Replace("Uploaded By", ";Uploaded By: [").Replace("IMDB Link:", ";IMDB Link:").Trim().Split(";").ToList();
 
@@ -199,10 +222,10 @@ namespace stcBot
 						Category = $"{itemSummary[1].Replace("[ ", "[").Trim()}]",
 						Type = $"{itemSummary[2].Trim().Replace("[ ", "[")}]",
 						Uploader = $"{itemSummary[9].Trim().Replace("[ ", "[")}]",
-						Url = item.Links[0].Uri.ToString().Trim(),
+						Url = item.Links[0].Uri.ToString().Substring(0, item.Links[0].Uri.ToString().Length-33),
 						Size = $"{itemSummary[4].Trim().Replace("[ ", "[")}]"
 					};
-
+					announce.FreeLeech = freeleech ? $"Freeleech: [Yes]" : "Freeleech: [No]";
 					announcements.Add(announce);
 				}
 				return announcements;
