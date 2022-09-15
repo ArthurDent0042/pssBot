@@ -121,7 +121,7 @@ namespace stcBot
 											channel = d[2][1..];
 
 											logger.Info("USER JOIN detected");
-											if (channel.ToLower() != announceChannel.ToLower() && user != botSettings.Nick)   // be quiet on the #announce channel
+											if (channel.ToLower() != announceChannel.ToLower() && user != botSettings.Nick)   // be quiet on the #announce channel and don't talk to yourself
 											{
 												SendMessageToServer(writer, @$"PRIVMSG {channel} :Welcome {user}");
 											}
@@ -202,9 +202,6 @@ namespace stcBot
 			try
 			{
 				logger.Info($"Reading {url} RSS for new torrents");
-				
-				XmlReaderSettings settings = new XmlReaderSettings();
-				settings.DtdProcessing = DtdProcessing.Parse;
 				XmlReader reader = XmlReader.Create(url);
 				SyndicationFeed feed = SyndicationFeed.Load(reader);
 				reader.Close();
@@ -256,7 +253,7 @@ namespace stcBot
 		{
 			// post new torrent to #announce channel
 			logger.Info($"Announcing {torrent.Name}");
-			SendMessageToServer(writer, $"PRIVMSG {announceChannel} :New Torrent Announcement: {torrent.Category} {torrent.Type} {torrent.Name} {torrent.Size} {torrent.FreeLeech} {torrent.Uploader} - {torrent.Url}");
+			SendMessageToServer(writer, $"PRIVMSG {announceChannel} :New Torrent Announcement: {torrent.Category} {torrent.Type} {torrent.Name} {torrent.FreeLeech} {torrent.Size} {torrent.Uploader} - {torrent.Url}");
 
 			// write to the torrentHistory.log file
 			WriteTorrentNameToFile(torrent.Name);
