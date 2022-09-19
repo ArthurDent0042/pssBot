@@ -16,6 +16,7 @@ namespace stcBot
 		static string rssFeed = string.Empty;
 		static string freeleechRssFeed = string.Empty;
 		static string announceChannel = string.Empty;
+		static int timeToSleepBetweenAnnouncements = 10;
 		static BotSettings? botSettings;
 		static string torrentHistoryLogFileName = string.Empty;
 		static readonly IConfigurationRoot config = new ConfigurationBuilder()
@@ -49,6 +50,9 @@ namespace stcBot
 
 			// name of torrent history logfile
 			torrentHistoryLogFileName = config.GetValue<string>("torrentHistoryLogFilename");
+
+			// time (in seconds) of how long to wait between making announcements
+			timeToSleepBetweenAnnouncements = config.GetValue<int>("timeToSleepBetweenAnnouncements");
 
 			// Get the timer started
 			SiteTimer();
@@ -146,31 +150,19 @@ namespace stcBot
 							}
 							if (OkToCheckRSS)
 							{
-								List<Announce>? flAnnouncments = ReadRSSFeed(freeleechRssFeed, true);
-								if (flAnnouncments.Any())
-								{
-									foreach (Announce item in flAnnouncments)
-									{
-										if (!HasTorrentBeenAnnounced(item.Name))
-										{
-											AnnounceTorrent(writer, item);
-										}
-									}
-								}
-
-								List<Announce>? announcments = ReadRSSFeed(rssFeed, false);
-
+								List<Announce> announcements = new();
+								List<Announce>? announcments = ReadRSSFeed(freeleechRssFeed, announcements, true);
+								announcments = ReadRSSFeed(rssFeed, announcements, false);
 								if (announcments.Any())
 								{
 									foreach (Announce item in announcments)
 									{
 										if (!HasTorrentBeenAnnounced(item.Name))
 										{
-											AnnounceTorrent(writer, item);
+											AnnounceTorrent(writer, item, reader);
 										}
 									}
 								}
-
 
 								OkToCheckRSS = false;
 							}
@@ -180,10 +172,10 @@ namespace stcBot
 				catch (Exception ex)
 				{
 					//logger.Info($"Client connected: {client.Connected}");
-					logger.Info($"Caught exception: {ex}");
+					logger.Error($"Caught exception: {ex}");
 
 					// shows the exception, sleeps for a little while and then tries to establish a new connection to the IRC server
-					logger.Info(ex.ToString());
+					logger.Error(ex.ToString());
 					Thread.Sleep(5000);
 					_ = new IRCbot();
 					Start();
@@ -197,7 +189,7 @@ namespace stcBot
 		/// Read the RSS feed
 		/// </summary>
 		/// <returns>List of announcements</returns>
-		public static List<Announce>? ReadRSSFeed(string url, bool freeleech)
+		public static List<Announce>? ReadRSSFeed(string url, List<Announce> announcements, bool freeleech)
 		{
 			try
 			{
@@ -205,7 +197,6 @@ namespace stcBot
 				XmlReader reader = XmlReader.Create(url);
 				SyndicationFeed feed = SyndicationFeed.Load(reader);
 				reader.Close();
-				List<Announce> announcements = new();
 				foreach (SyndicationItem item in feed.Items)
 				{
 					// This will split the item.Summary into multiple parts
@@ -219,7 +210,7 @@ namespace stcBot
 						Category = $"{itemSummary[1].Replace("[ ", "[").Trim()}]",
 						Type = $"{itemSummary[2].Trim().Replace("[ ", "[")}]",
 						Uploader = $"{itemSummary[9].Trim().Replace("[ ", "[")}]",
-						Url = item.Links[0].Uri.ToString().Substring(0, item.Links[0].Uri.ToString().Length-33),
+						Url = item.Links[0].Uri.ToString().Substring(0, item.Links[0].Uri.ToString().Length - 33),
 						Size = $"{itemSummary[4].Trim().Replace("[ ", "[")}]"
 					};
 					announce.FreeLeech = freeleech ? $"Freeleech: [Yes]" : "Freeleech: [No]";
@@ -229,7 +220,7 @@ namespace stcBot
 			}
 			catch (Exception ex)
 			{
-				logger.Info($"Error while trying to read RSS Feed: {ex}");
+				logger.Error($"Error while trying to read RSS Feed: {ex}");
 				return null;
 			}
 		}
@@ -249,7 +240,7 @@ namespace stcBot
 		/// </summary>
 		/// <param name="writer"></param>
 		/// <param name="torrent"></param>
-		public static void AnnounceTorrent(StreamWriter writer, Announce torrent)
+		public static void AnnounceTorrent(StreamWriter writer, Announce torrent, StreamReader reader)
 		{
 			// post new torrent to #announce channel
 			logger.Info($"Announcing {torrent.Name}");
@@ -259,7 +250,7 @@ namespace stcBot
 			WriteTorrentNameToFile(torrent.Name);
 
 			// IRC Server thinks we are spamming if we write messages too quickly.
-			Thread.Sleep(5000);
+			Thread.Sleep(timeToSleepBetweenAnnouncements * 1000);
 		}
 
 		/// <summary>
@@ -273,7 +264,7 @@ namespace stcBot
 			List<string> torrents = File.ReadAllLines(filePath).TakeLast(500).ToList();
 			foreach (string item in torrents)
 			{
-				if (item.Contains(torrent))
+				if (item.ToLower().Contains(torrent.ToLower()))
 				{
 					return true;
 				}
