@@ -51,6 +51,12 @@ namespace stcBot
 			// name of torrent history logfile
 			torrentHistoryLogFileName = config.GetValue<string>("torrentHistoryLogFilename");
 
+			// verify history logfile exists
+			if (!File.Exists($@"{AppDomain.CurrentDomain.BaseDirectory}{torrentHistoryLogFileName}"))
+			{
+				File.Create($@"{AppDomain.CurrentDomain.BaseDirectory}{torrentHistoryLogFileName}").Close();
+			}
+
 			// time (in seconds) of how long to wait between making announcements
 			timeToSleepBetweenAnnouncements = config.GetValue<int>("timeToSleepBetweenAnnouncements");
 
@@ -58,7 +64,7 @@ namespace stcBot
 			SiteTimer();
 
 			// Let's fire up the bot
-			IRCbot ircBot = new();
+			_ = new IRCbot();
 			Start();
 		}
 
@@ -110,7 +116,6 @@ namespace stcBot
 							if (d[0] == "PING")
 							{
 								logger.Info("Recieved a PING from the server");
-								logger.Info($"Replying with PONG {d[1]}");
 								SendMessageToServer(writer, $"PONG {d[1]}");
 							}
 
@@ -140,7 +145,7 @@ namespace stcBot
 											}
 											break;
 										}
-									case "376": //":End of MOTD command"
+									case "376": // ":End of MOTD command"
 										{
 											// tell NickServ who we are
 											SendMessageToServer(writer, $"PRIVMSG nickserv IDENTIFY {botSettings.NickServPassword}");
@@ -159,7 +164,11 @@ namespace stcBot
 									{
 										if (!HasTorrentBeenAnnounced(item.Name))
 										{
-											AnnounceTorrent(writer, item, reader);
+											AnnounceTorrent(writer, item);
+
+											// Also check the size of the torrentHistory.log file
+											// If it's too large, we want to cut it down a bit
+											ResizeHistoryLog(torrentHistoryLogFileName);
 										}
 									}
 								}
@@ -210,10 +219,10 @@ namespace stcBot
 						Category = $"{itemSummary[1].Replace("[ ", "[").Trim()}]",
 						Type = $"{itemSummary[2].Trim().Replace("[ ", "[")}]",
 						Uploader = $"{itemSummary[9].Trim().Replace("[ ", "[")}]",
-						Url = item.Links[0].Uri.ToString().Substring(0, item.Links[0].Uri.ToString().Length - 33),
-						Size = $"{itemSummary[4].Trim().Replace("[ ", "[")}]"
+						Url = item.Links[0].Uri.ToString()[..^33],
+						Size = $"{itemSummary[4].Trim().Replace("[ ", "[")}]",
+						FreeLeech = freeleech ? $"Freeleech: [Yes]" : "Freeleech: [No]"
 					};
-					announce.FreeLeech = freeleech ? $"Freeleech: [Yes]" : "Freeleech: [No]";
 					announcements.Add(announce);
 				}
 				return announcements;
@@ -240,7 +249,7 @@ namespace stcBot
 		/// </summary>
 		/// <param name="writer"></param>
 		/// <param name="torrent"></param>
-		public static void AnnounceTorrent(StreamWriter writer, Announce torrent, StreamReader reader)
+		public static void AnnounceTorrent(StreamWriter writer, Announce torrent)
 		{
 			// post new torrent to #announce channel
 			logger.Info($"Announcing {torrent.Name}");
@@ -261,7 +270,7 @@ namespace stcBot
 		public static bool HasTorrentBeenAnnounced(string torrent)
 		{
 			string filePath = $@"{AppDomain.CurrentDomain.BaseDirectory}{torrentHistoryLogFileName}";
-			List<string> torrents = File.ReadAllLines(filePath).TakeLast(500).ToList();
+			List<string> torrents = File.ReadAllLines(filePath).TakeLast(50).ToList();
 			foreach (string item in torrents)
 			{
 				if (item.ToLower().Contains(torrent.ToLower()))
@@ -282,6 +291,23 @@ namespace stcBot
 			logger.Info(msg);
 			writer.WriteLine($"{msg}\r\n");
 			writer.Flush();
+		}
+		
+		public static void ResizeHistoryLog(string filename)
+		{
+			try
+			{
+				int lines = File.ReadAllLines($@"{AppDomain.CurrentDomain.BaseDirectory}{filename}").Length;
+				if (lines > 100)
+				{
+					File.WriteAllLines($@"{AppDomain.CurrentDomain.BaseDirectory}{filename}", File.ReadAllLines($@"{AppDomain.CurrentDomain.BaseDirectory}{filename}").Skip(lines - 51).ToArray());
+					logger.Info("Resized torrent history logfile");
+				}
+			}
+			catch (Exception ex)
+			{
+				logger.Error(ex.Message);
+			}
 		}
 	}
 }
