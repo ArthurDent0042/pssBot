@@ -1,4 +1,4 @@
-﻿namespace stcBot.Models
+﻿namespace aitherBot.Models
 {
     public class BotSettings
     {

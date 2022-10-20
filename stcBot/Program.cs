@@ -1,13 +1,12 @@
 ﻿using Microsoft.Extensions.Configuration;
 using NLog;
-using stcBot.Models;
+using aitherBot.Models;
 using System.Net.Sockets;
 using System.ServiceModel.Syndication;
-using System.Text.RegularExpressions;
 using System.Timers;
 using System.Xml;
 
-namespace stcBot
+namespace aitherBot
 {
 	public class IRCbot
 	{
@@ -87,7 +86,7 @@ namespace stcBot
 
 		public static void Start()
 		{
-			logger.Info("ircBot app starting");
+			logger.Info("aitherBot app starting");
 			int retryCount = botSettings.MaxRetries;
 			bool retry = true;
 			do
@@ -102,8 +101,11 @@ namespace stcBot
 					logger.Info($"Assigning NICK of {botSettings.Nick} to bot");
 					SendMessageToServer(writer, $"NICK {botSettings.Nick}");
 					SendMessageToServer(writer, botSettings.User);
-					SendMessageToServer(writer, $"TOPIC #general :Welcome to SkipTheCommericals IRC!");
-					logger.Info($"Client connected (inside using): {client.Connected}");
+					//SendMessageToServer(writer, $"TOPIC #general :Welcome to Aither IRC!");
+					logger.Info($"Client connected: {client.Connected}");
+					
+					// Check the RSS as soon as the bot is started
+					//OkToCheckRSS = true;
 
 					while (client.Connected)
 					{
@@ -156,8 +158,8 @@ namespace stcBot
 							if (OkToCheckRSS)
 							{
 								List<Announce> announcements = new();
-								List<Announce>? announcments = ReadRSSFeed(freeleechRssFeed, announcements, true);
-								announcments = ReadRSSFeed(rssFeed, announcements, false);
+								//List<Announce>? announcments = ReadRSSFeed(freeleechRssFeed, announcements, true);
+								List<Announce>? announcments = ReadRSSFeed(rssFeed, announcements, false);
 								if (announcments.Any())
 								{
 									foreach (Announce item in announcments)
@@ -180,7 +182,6 @@ namespace stcBot
 				}
 				catch (Exception ex)
 				{
-					//logger.Info($"Client connected: {client.Connected}");
 					logger.Error($"Caught exception: {ex}");
 
 					// shows the exception, sleeps for a little while and then tries to establish a new connection to the IRC server
@@ -208,20 +209,18 @@ namespace stcBot
 				reader.Close();
 				foreach (SyndicationItem item in feed.Items)
 				{
-					// This will split the item.Summary into multiple parts
-					string newItem = Regex.Replace(item.Summary.Text, @"\s+", " ").Replace("<br>", "").Replace("|", "").Replace("<p>", "").Replace("&#039;", "'").Replace("Uploader: Anonymous Uploader", "Uploader: Uploaded By Anonymous Uploader");
-					List<string> itemSummary = new();
-					itemSummary = newItem.Replace("<p> Name", "Name: [").Replace("Category:", ";Category: [").Replace("Type:", ";Type: [").Replace("Resolution:", ";Resolution: [").Replace("Size:", ";Size: [").Replace("Uploaded:", ";Uploaded:").Replace("Seeders:", ";Seeders:").Replace("Leechers:", ";Leechers:").Replace("Completed:", ";Completed").Replace("Uploaded By", ";Uploaded By: [").Replace("IMDB Link:", ";IMDB Link:").Trim().Split(";").ToList();
+					string[] newItem = item.Summary.Text.Split("<strong>");
 
 					Announce announce = new()
 					{
-						Name = $"Name: [{item.Title.Text.Trim()}]",
-						Category = $"{itemSummary[1].Replace("[ ", "[").Trim()}]",
-						Type = $"{itemSummary[2].Trim().Replace("[ ", "[")}]",
-						Uploader = $"{itemSummary[9].Trim().Replace("[ ", "[")}]",
-						Url = item.Links[0].Uri.ToString()[..^33],
-						Size = $"{itemSummary[4].Trim().Replace("[ ", "[")}]",
-						FreeLeech = freeleech ? $"Freeleech: [Yes]" : "Freeleech: [No]"
+						Name = $"Name: [{newItem[1].Trim()}]".Replace("Name</strong>: ","").Replace("<br>", ""),
+						Category = $"Category: [{newItem[2].Trim()}]".Replace("Category</strong>: ", "").Replace("<br>", ""),
+						Type = $"Type: [{newItem[3].Trim()}]".Replace("Type</strong>: ", "").Replace("<br>", ""),
+						Resolution = $"Resolution: [{newItem[4].Trim()}]".Replace("Resolution</strong>: ", "").Replace("<br>", ""),
+						Size = $"Size: [{newItem[5].Trim()}]".Replace("Size</strong>: ", "").Replace("<br>", ""),
+						Uploader = $"Uploader: [{newItem[10].Split('\n')[1].Trim()}]".Replace("Anonymous Uploader", "Anonymous").Replace("Uploaded By ", ""),
+						Url = $"Url: [{item.Links[0].Uri}]"
+						//	FreeLeech = freeleech ? $"Freeleech: [Yes]" : "Freeleech: [No]"
 					};
 					announcements.Add(announce);
 				}
@@ -253,7 +252,7 @@ namespace stcBot
 		{
 			// post new torrent to #announce channel
 			logger.Info($"Announcing {torrent.Name}");
-			SendMessageToServer(writer, $"PRIVMSG {announceChannel} :New Torrent Announcement: {torrent.Category} {torrent.Type} {torrent.Name} {torrent.FreeLeech} {torrent.Size} {torrent.Uploader} - {torrent.Url}");
+			SendMessageToServer(writer, $"PRIVMSG {announceChannel} :{torrent.Category} {torrent.Type} {torrent.Name} {torrent.FreeLeech} {torrent.Size} {torrent.Uploader} {torrent.Url}");
 
 			// write to the torrentHistory.log file
 			WriteTorrentNameToFile(torrent.Name);
@@ -270,7 +269,7 @@ namespace stcBot
 		public static bool HasTorrentBeenAnnounced(string torrent)
 		{
 			string filePath = $@"{AppDomain.CurrentDomain.BaseDirectory}{torrentHistoryLogFileName}";
-			List<string> torrents = File.ReadAllLines(filePath).TakeLast(50).ToList();
+			List<string> torrents = File.ReadAllLines(filePath).TakeLast(500).ToList();
 			foreach (string item in torrents)
 			{
 				if (item.ToLower().Contains(torrent.ToLower()))
@@ -288,11 +287,23 @@ namespace stcBot
 		/// <param name="msg"></param>
 		public static void SendMessageToServer(StreamWriter writer, string msg)
 		{
-			logger.Info(msg);
-			writer.WriteLine($"{msg}\r\n");
-			writer.Flush();
+			try
+			{
+				logger.Info(msg);
+				writer.WriteLine($"{msg}\r\n");
+				writer.Flush();
+			}
+			catch (Exception ex) 
+			{
+				logger.Error(ex);
+			}
 		}
 		
+		/// <summary>
+		/// If left unchecked, the size of the history log of announced torrents grows too large
+		/// This can negatively impact performance, so we'll make sure the file stays a manageable size
+		/// </summary>
+		/// <param name="filename"></param>
 		public static void ResizeHistoryLog(string filename)
 		{
 			try
