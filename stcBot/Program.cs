@@ -1,29 +1,30 @@
-﻿using Microsoft.Extensions.Configuration;
+﻿using aitherBot.Models;
+using Microsoft.Extensions.Configuration;
+using Newtonsoft.Json;
 using NLog;
-using aitherBot.Models;
+using System.Diagnostics;
 using System.Net.Sockets;
-using System.ServiceModel.Syndication;
-using System.Timers;
-using System.Xml;
 
 namespace aitherBot
 {
 	public class IRCbot
 	{
 		private static readonly Logger logger = LogManager.GetCurrentClassLogger();
-		static bool OkToCheckRSS = false;
-		static string rssFeed = string.Empty;
-		static string freeleechRssFeed = string.Empty;
+		private static string apiKey = string.Empty;
 		static string announceChannel = string.Empty;
-		static int timeToSleepBetweenAnnouncements = 10;
+		//static int timeToSleepBetweenAnnouncements = 10;
 		static BotSettings? botSettings;
 		static string torrentHistoryLogFileName = string.Empty;
+		static List<Announce> announcements = new();
 		static readonly IConfigurationRoot config = new ConfigurationBuilder()
 						.SetBasePath(Directory.GetCurrentDirectory())
 						.AddJsonFile(path: "appSettings.json", optional: false, reloadOnChange: true)
 						.Build();
-
-		static void Main()
+		static readonly HttpClient client = new()
+		{
+			BaseAddress = new Uri($"https://aither.cc/")
+		};
+		static async Task Main()
 		{
 			// get bot settings
 			botSettings = new BotSettings()
@@ -34,15 +35,12 @@ namespace aitherBot
 				Nick = config.GetValue<string>("ircBotConfig:botNick"),
 				NickServPassword = config.GetValue<string>("ircBotConfig:NickServPassword"),
 				ChannelsToJoin = config.GetSection("ircBotConfig:channelsToJoin").Get<List<string>>(),
-				RssCheckFrequency = config.GetValue<int>("ircBotConfig:RSSCheckFrequencyInSeconds")
+				APICheckFrequency = config.GetValue<int>("ircBotConfig:APICheckFrequencyInSeconds")
 			};
 			botSettings.User = $"USER {botSettings.Nick} 0 * :{botSettings.Nick}";
 
-			// Path for RSS Feed
-			rssFeed = config.GetValue<string>("RSSFeed");
-
-			// Path for Freeleech RSS Feed
-			freeleechRssFeed = config.GetValue<string>("FreeleechRSSFeed");
+			// API Key
+			apiKey = config.GetValue<string>("APIKey");
 
 			// Announce channel
 			announceChannel = config.GetValue<string>("announceChannel");
@@ -57,14 +55,11 @@ namespace aitherBot
 			}
 
 			// time (in seconds) of how long to wait between making announcements
-			timeToSleepBetweenAnnouncements = config.GetValue<int>("timeToSleepBetweenAnnouncements");
-
-			// Get the timer started
-			SiteTimer();
+			//timeToSleepBetweenAnnouncements = config.GetValue<int>("timeToSleepBetweenAnnouncements");
 
 			// Let's fire up the bot
 			_ = new IRCbot();
-			Start();
+			await Start();
 		}
 
 		public IRCbot() { }
@@ -72,19 +67,35 @@ namespace aitherBot
 		/// <summary>
 		/// Used to fire off actions we want to perform at specific intervals
 		/// </summary>
-		public static void SiteTimer()
+		public static void SiteTimer(StreamWriter writer)
 		{
-			System.Timers.Timer timer = new(interval: botSettings.RssCheckFrequency * 1000);
+			System.Timers.Timer timer = new(interval: botSettings.APICheckFrequency * 1000)
+			{
+				AutoReset = true
+			};
+			timer.Elapsed += (source, e) => HandleTimerElapsed(source, e, writer);
 			timer.Start();
-			timer.Elapsed += HandleTimerElapsed;
 		}
 
-		public static void HandleTimerElapsed(object sender, ElapsedEventArgs e)
+		public static void HandleTimerElapsed(object source, EventArgs e, StreamWriter writer)
 		{
-			OkToCheckRSS = true;
+			ReadAPI(writer).Wait();
+			//SendMessageToServer(writer, $"PRIVMSG {announceChannel} Found {announcements.Count} torrents to announce");
+			if (announcements.Any())
+			{
+				foreach (Announce item in announcements)
+				{
+					AnnounceTorrent(writer, item);
+
+					// Also check the size of the torrentHistory.log file
+					// If it's too large, we want to cut it down a bit
+					ResizeHistoryLog(torrentHistoryLogFileName);
+				}
+				announcements.Clear();
+			}
 		}
 
-		public static void Start()
+		public static async Task Start()
 		{
 			logger.Info("aitherBot app starting");
 			int retryCount = botSettings.MaxRetries;
@@ -101,11 +112,7 @@ namespace aitherBot
 					logger.Info($"Assigning NICK of {botSettings.Nick} to bot");
 					SendMessageToServer(writer, $"NICK {botSettings.Nick}");
 					SendMessageToServer(writer, botSettings.User);
-					//SendMessageToServer(writer, $"TOPIC #general :Welcome to Aither IRC!");
 					logger.Info($"Client connected: {client.Connected}");
-					
-					// Check the RSS as soon as the bot is started
-					//OkToCheckRSS = true;
 
 					while (client.Connected)
 					{
@@ -151,31 +158,12 @@ namespace aitherBot
 										{
 											// tell NickServ who we are
 											SendMessageToServer(writer, $"PRIVMSG nickserv IDENTIFY {botSettings.NickServPassword}");
+											
+											// we've successfully connected to irc - now start our timer
+											SiteTimer(writer);
 											break;
 										}
 								}
-							}
-							if (OkToCheckRSS)
-							{
-								List<Announce> announcements = new();
-								//List<Announce>? announcments = ReadRSSFeed(freeleechRssFeed, announcements, true);
-								List<Announce>? announcments = ReadRSSFeed(rssFeed, announcements, false);
-								if (announcments.Any())
-								{
-									foreach (Announce item in announcments)
-									{
-										if (!HasTorrentBeenAnnounced(item.Name))
-										{
-											AnnounceTorrent(writer, item);
-
-											// Also check the size of the torrentHistory.log file
-											// If it's too large, we want to cut it down a bit
-											ResizeHistoryLog(torrentHistoryLogFileName);
-										}
-									}
-								}
-
-								OkToCheckRSS = false;
 							}
 						}
 					}
@@ -188,48 +176,55 @@ namespace aitherBot
 					logger.Error(ex.ToString());
 					Thread.Sleep(5000);
 					_ = new IRCbot();
-					Start();
+					await Start();
 
 					retry = ++retryCount <= botSettings.MaxRetries;
 				}
 			} while (retry);
 		}
 
-		/// <summary>
-		/// Read the RSS feed
-		/// </summary>
-		/// <returns>List of announcements</returns>
-		public static List<Announce>? ReadRSSFeed(string url, List<Announce> announcements, bool freeleech)
+		public static async Task<List<Announce>?> ReadAPI(StreamWriter writer)
 		{
-			try
+			while (true)
 			{
-				logger.Info($"Reading {url} RSS for new torrents");
-				XmlReader reader = XmlReader.Create(url);
-				SyndicationFeed feed = SyndicationFeed.Load(reader);
-				reader.Close();
-				foreach (SyndicationItem item in feed.Items)
+				try
 				{
-					string[] newItem = item.Summary.Text.Split("<strong>");
-
-					Announce announce = new()
+					HttpResponseMessage response = await client.GetAsync($"api/torrents?api_token={apiKey}");
+					if (response.IsSuccessStatusCode)
 					{
-						Name = $"Name: [{newItem[1].Trim()}]".Replace("Name</strong>: ","").Replace("<br>", ""),
-						Category = $"Category: [{newItem[2].Trim()}]".Replace("Category</strong>: ", "").Replace("<br>", ""),
-						Type = $"Type: [{newItem[3].Trim()}]".Replace("Type</strong>: ", "").Replace("<br>", ""),
-						Resolution = $"Resolution: [{newItem[4].Trim()}]".Replace("Resolution</strong>: ", "").Replace("<br>", ""),
-						Size = $"Size: [{newItem[5].Trim()}]".Replace("Size</strong>: ", "").Replace("<br>", ""),
-						Uploader = $"Uploader: [{newItem[10].Split('\n')[1].Trim()}]".Replace("Anonymous Uploader", "Anonymous").Replace("Uploaded By ", ""),
-						Url = $"Url: [{item.Links[0].Uri}]"
-						//	FreeLeech = freeleech ? $"Freeleech: [Yes]" : "Freeleech: [No]"
-					};
-					announcements.Add(announce);
+						string result = response.Content.ReadAsStringAsync().Result;
+						Torrent? torrents = JsonConvert.DeserializeObject<Torrent>(result);
+						if (torrents != null)
+						{
+							foreach (Datum data in torrents.Data)
+							{
+								if (!HasTorrentBeenAnnounced(data.Attributes.Name))
+								{
+									Announce announce = new()
+									{
+										Category = data.Attributes.Category,
+										Name = data.Attributes.Name,
+										Size = FormatBytes(Convert.ToInt64(data.Attributes.Size)),
+										Type = data.Attributes.Type,
+										Resolution = data.Attributes.Resolution ?? null,
+										Uploader = data.Attributes.Uploader.ToString(),
+										Url = data.Attributes.Download_link,
+										FreeLeech = data.Attributes.Freeleech,
+										DoubleUpload = data.Attributes.Double_upload.ToString() == "0" ? "No" : "Yes"
+									};
+									announcements.Add(announce);
+								}
+							}
+						}
+					}
+					return announcements;
+
 				}
-				return announcements;
-			}
-			catch (Exception ex)
-			{
-				logger.Error($"Error while trying to read RSS Feed: {ex}");
-				return null;
+				catch (Exception ex)
+				{
+					Debug.Write(ex.ToString());
+					return null;
+				}
 			}
 		}
 
@@ -252,13 +247,10 @@ namespace aitherBot
 		{
 			// post new torrent to #announce channel
 			logger.Info($"Announcing {torrent.Name}");
-			SendMessageToServer(writer, $"PRIVMSG {announceChannel} :{torrent.Category} {torrent.Type} {torrent.Name} {torrent.FreeLeech} {torrent.Size} {torrent.Uploader} {torrent.Url}");
+			SendMessageToServer(writer, $"PRIVMSG {announceChannel} :Category [{torrent.Category}] Type [{torrent.Type}] Name [{torrent.Name}] Freeleech [{torrent.FreeLeech}] Double Upload [{torrent.DoubleUpload}] Size [{torrent.Size}] Uploader [{torrent.Uploader}] Url [{torrent.Url}]");
 
 			// write to the torrentHistory.log file
 			WriteTorrentNameToFile(torrent.Name);
-
-			// IRC Server thinks we are spamming if we write messages too quickly.
-			Thread.Sleep(timeToSleepBetweenAnnouncements * 1000);
 		}
 
 		/// <summary>
@@ -293,12 +285,12 @@ namespace aitherBot
 				writer.WriteLine($"{msg}\r\n");
 				writer.Flush();
 			}
-			catch (Exception ex) 
+			catch (Exception ex)
 			{
 				logger.Error(ex);
 			}
 		}
-		
+
 		/// <summary>
 		/// If left unchecked, the size of the history log of announced torrents grows too large
 		/// This can negatively impact performance, so we'll make sure the file stays a manageable size
@@ -319,6 +311,19 @@ namespace aitherBot
 			{
 				logger.Error(ex.Message);
 			}
+		}
+
+		private static string FormatBytes(Int64 bytes)
+		{
+			string[] Suffix = { "B", "kB", "MB", "GB", "TB" };
+			int i;
+			double dblSByte = bytes;
+			for (i = 0; i < Suffix.Length && bytes >= 1024; i++, bytes /= 1024)
+			{
+				dblSByte = bytes / 1024.0;
+			}
+
+			return String.Format("{0:0.##} {1}", dblSByte, Suffix[i]);
 		}
 	}
 }

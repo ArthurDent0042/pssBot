@@ -9,6 +9,6 @@
         public string Nick { get; set; } = string.Empty;
         public string NickServPassword { get; set; } = string.Empty;
         public List<string>? ChannelsToJoin { get; set; } = new List<string> { string.Empty };
-        public int RssCheckFrequency { get; set; } = 60;
+        public int APICheckFrequency { get; set; } = 60;
     }
 }
