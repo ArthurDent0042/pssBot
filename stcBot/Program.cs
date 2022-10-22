@@ -12,7 +12,6 @@ namespace aitherBot
 		private static readonly Logger logger = LogManager.GetCurrentClassLogger();
 		private static string apiKey = string.Empty;
 		static string announceChannel = string.Empty;
-		//static int timeToSleepBetweenAnnouncements = 10;
 		static BotSettings? botSettings;
 		static string torrentHistoryLogFileName = string.Empty;
 		static List<Announce> announcements = new();
@@ -73,13 +72,13 @@ namespace aitherBot
 			{
 				AutoReset = true
 			};
-			timer.Elapsed += (source, e) => HandleTimerElapsed(source, e, writer);
+			timer.Elapsed += (source, e) => HandleTimerElapsed(writer);
 			timer.Start();
 		}
 
-		public static void HandleTimerElapsed(object source, EventArgs e, StreamWriter writer)
+		public static void HandleTimerElapsed(StreamWriter writer)
 		{
-			ReadAPI(writer).Wait();
+			ReadAPI().Wait();
 			//SendMessageToServer(writer, $"PRIVMSG {announceChannel} Found {announcements.Count} torrents to announce");
 			if (announcements.Any())
 			{
@@ -183,7 +182,7 @@ namespace aitherBot
 			} while (retry);
 		}
 
-		public static async Task<List<Announce>?> ReadAPI(StreamWriter writer)
+		public static async Task<List<Announce>?> ReadAPI()
 		{
 			while (true)
 			{

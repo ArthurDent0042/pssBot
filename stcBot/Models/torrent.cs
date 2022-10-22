@@ -9,10 +9,10 @@
 		public string? Type { get; set; }
 		public string? Resolution { get; set; }
 		public string? Media_info { get; set; }
-		public string BD_info { get; set; }
+		public string? BD_info { get; set; }
 		public string? Description { get; set; }
 		public string? Info_hash { get; set; }
-		public Int64 Size { get; set; }
+		public long Size { get; set; }
 		public int Num_file { get; set; }
 		public string? Freeleech { get; set; }
 		public int Double_upload { get; set; }
@@ -56,11 +56,11 @@
 	public class Meta
 	{
 		public string? Poster { get; set; }
-		public string	 Genres { get; set; }
+		public string? Genres { get; set; }
 		public int Current_page { get; set; }
 		public int From { get; set; }
 		public int Last_page { get; set; }
-		public List<Link?> Links { get; set; }
+		public List<Link>? Links { get; set; }
 		public string? Path { get; set; }
 		public int Per_page { get; set; }
 		public int To { get; set; }
@@ -69,7 +69,7 @@
 
 	public class Torrent
 	{
-		public List<Datum> Data { get; set; }
+		public List<Datum>? Data { get; set; }
 		public Link? Links { get; set; }
 		public Meta? Meta { get; set; }
 	}
