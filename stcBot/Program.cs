@@ -14,6 +14,7 @@ namespace aitherBot
 		static string announceChannel = string.Empty;
 		static BotSettings? botSettings;
 		static string torrentHistoryLogFileName = string.Empty;
+		static string previousApiResult = string.Empty;
 		static List<Announce> announcements = new();
 		static readonly IConfigurationRoot config = new ConfigurationBuilder()
 						.SetBasePath(Directory.GetCurrentDirectory())
@@ -181,36 +182,48 @@ namespace aitherBot
 
 		public static async Task<List<Announce>?> ReadAPI()
 		{
+			Stopwatch stopwatch1 = new();
+			stopwatch1.Start();
 			try
 			{
 				HttpResponseMessage response = await client.GetAsync($"api/torrents?api_token={apiKey}");
 				if (response.IsSuccessStatusCode)
 				{
 					string result = response.Content.ReadAsStringAsync().Result;
-					Torrent? torrents = JsonConvert.DeserializeObject<Torrent>(result);
-					if (torrents != null)
+					// check to see if our result is the same length as the previous result
+					// if the same, then no need to parse the data looking for new torrents
+					if (result != previousApiResult)
 					{
-						foreach (Datum data in torrents.Data)
+						previousApiResult = result;
+						Torrent? torrents = JsonConvert.DeserializeObject<Torrent>(result);
+						if (torrents != null)
 						{
-							if (!HasTorrentBeenAnnounced(data.Attributes.Name))
+							foreach (Datum data in torrents.Data)
 							{
-								Announce announce = new()
+								if (!HasTorrentBeenAnnounced(data.Id))
 								{
-									Category = data.Attributes.Category,
-									Name = data.Attributes.Name,
-									Size = FormatBytes(Convert.ToInt64(data.Attributes.Size)),
-									Type = data.Attributes.Type,
-									Resolution = data.Attributes.Resolution ?? null,
-									Uploader = data.Attributes.Uploader,
-									Url = data.Attributes.Download_link,
-									FreeLeech = data.Attributes.Freeleech,
-									DoubleUpload = data.Attributes.Double_upload.ToString() == "0" ? "No" : "Yes"
-								};
-								announcements.Add(announce);
+									Announce announce = new()
+									{
+										Id = data.Id,
+										Category = data.Attributes.Category,
+										Name = data.Attributes.Name,
+										Size = FormatBytes(Convert.ToInt64(data.Attributes.Size)),
+										Type = data.Attributes.Type,
+										Resolution = data.Attributes.Resolution ?? null,
+										Uploader = data.Attributes.Uploader,
+										Url = data.Attributes.Download_link,
+										FreeLeech = data.Attributes.Freeleech,
+										DoubleUpload = data.Attributes.Double_upload.ToString() == "0" ? "No" : "Yes"
+									};
+									announcements.Add(announce);
+								}
 							}
 						}
 					}
+					stopwatch1.Stop();
+					logger.Info($"new way: {stopwatch1.Elapsed}");
 				}
+
 				return announcements;
 
 			}
@@ -252,7 +265,7 @@ namespace aitherBot
 				SendMessageToServer(writer, $"PRIVMSG {announceChannel} :Category [{torrent.Category}] Type [{torrent.Type}] Name [{torrent.Name}] Freeleech [{torrent.FreeLeech}] Double Upload [{torrent.DoubleUpload}] Size [{torrent.Size}] Uploader [{torrent.Uploader}] Url [{torrent.Url}]");
 
 				// write to the torrentHistory.log file
-				WriteTorrentNameToFile(torrent.Name);
+				WriteTorrentNameToFile(torrent.Id);
 			}
 			catch (Exception ex)
 			{
@@ -265,7 +278,7 @@ namespace aitherBot
 		/// </summary>
 		/// <param name="torrent"></param>
 		/// <returns></returns>
-		public static bool HasTorrentBeenAnnounced(string torrent)
+		public static bool HasTorrentBeenAnnounced(string id)
 		{
 			try
 			{
@@ -273,7 +286,7 @@ namespace aitherBot
 				List<string> torrents = File.ReadAllLines(filePath).TakeLast(500).ToList();
 				foreach (string item in torrents)
 				{
-					if (item.ToLower().Contains(torrent.ToLower()))
+					if (item.ToLower().Contains(id.ToLower()))
 					{
 						return true;
 					}
@@ -345,7 +358,7 @@ namespace aitherBot
 			catch (Exception ex)
 			{
 				logger.Error(ex.Message);
-				return null;
+				return string.Empty;
 			}
 		}
 	}
