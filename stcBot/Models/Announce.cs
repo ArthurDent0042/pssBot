@@ -1,4 +1,4 @@
-﻿namespace aitherBot.Models
+﻿namespace stcBot.Models
 {
     public class Announce
     {

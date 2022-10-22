@@ -1,28 +1,28 @@
-﻿using aitherBot.Models;
+﻿using stcBot.Models;
 using Microsoft.Extensions.Configuration;
 using Newtonsoft.Json;
 using NLog;
-using System.Diagnostics;
+using NLog.Extensions.Logging;
 using System.Net.Sockets;
 
-namespace aitherBot
+namespace stcBot
 {
 	public class IRCbot
 	{
 		private static readonly Logger logger = LogManager.GetCurrentClassLogger();
 		private static string apiKey = string.Empty;
-		static string announceChannel = string.Empty;
-		static BotSettings? botSettings;
-		static string torrentHistoryLogFileName = string.Empty;
-		static string previousApiResult = string.Empty;
-		static List<Announce> announcements = new();
-		static readonly IConfigurationRoot config = new ConfigurationBuilder()
+		private static string announceChannel = string.Empty;
+		private static BotSettings? botSettings;
+		private static string torrentHistoryLogFileName = string.Empty;
+		private static string previousApiResult = string.Empty;
+		private static List<Announce> announcements = new();
+		private static readonly IConfigurationRoot config = new ConfigurationBuilder()
 						.SetBasePath(Directory.GetCurrentDirectory())
 						.AddJsonFile(path: "appSettings.json", optional: false, reloadOnChange: true)
 						.Build();
-		static readonly HttpClient client = new()
+		private static readonly HttpClient client = new()
 		{
-			BaseAddress = new Uri($"https://aither.cc/")
+			BaseAddress = new Uri(config.GetValue<string>("APIBaseAddress"))
 		};
 
 		static async Task Main()
@@ -54,6 +54,9 @@ namespace aitherBot
 			{
 				File.Create($@"{AppDomain.CurrentDomain.BaseDirectory}{torrentHistoryLogFileName}").Close();
 			}
+
+			// Load NLog config
+			LogManager.Configuration = new NLogLoggingConfiguration(config.GetSection("NLog"));
 
 			// Let's fire up the bot
 			_ = new IRCbot();
@@ -94,7 +97,7 @@ namespace aitherBot
 
 		public static async Task Start()
 		{
-			logger.Info("aitherBot app starting");
+			logger.Info($"{botSettings.Nick} announceBot app starting");
 			int retryCount = botSettings.MaxRetries;
 			bool retry = true;
 			do
@@ -182,8 +185,6 @@ namespace aitherBot
 
 		public static async Task<List<Announce>?> ReadAPI()
 		{
-			Stopwatch stopwatch1 = new();
-			stopwatch1.Start();
 			try
 			{
 				HttpResponseMessage response = await client.GetAsync($"api/torrents?api_token={apiKey}");
@@ -220,8 +221,6 @@ namespace aitherBot
 							}
 						}
 					}
-					stopwatch1.Stop();
-					logger.Info($"new way: {stopwatch1.Elapsed}");
 				}
 
 				return announcements;
