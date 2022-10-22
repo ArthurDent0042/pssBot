@@ -23,6 +23,7 @@ namespace aitherBot
 		{
 			BaseAddress = new Uri($"https://aither.cc/")
 		};
+
 		static async Task Main()
 		{
 			// get bot settings
@@ -53,9 +54,6 @@ namespace aitherBot
 				File.Create($@"{AppDomain.CurrentDomain.BaseDirectory}{torrentHistoryLogFileName}").Close();
 			}
 
-			// time (in seconds) of how long to wait between making announcements
-			//timeToSleepBetweenAnnouncements = config.GetValue<int>("timeToSleepBetweenAnnouncements");
-
 			// Let's fire up the bot
 			_ = new IRCbot();
 			await Start();
@@ -79,7 +77,6 @@ namespace aitherBot
 		public static void HandleTimerElapsed(StreamWriter writer)
 		{
 			ReadAPI().Wait();
-			//SendMessageToServer(writer, $"PRIVMSG {announceChannel} Found {announcements.Count} torrents to announce");
 			if (announcements.Any())
 			{
 				foreach (Announce item in announcements)
@@ -132,7 +129,7 @@ namespace aitherBot
 							{
 								switch (d[1])
 								{
-									case "JOIN":
+									case "JOIN":    // User has joined a channel
 										{
 											string user = data.Split('!')[0][1..];
 											channel = d[2][1..];
@@ -153,11 +150,11 @@ namespace aitherBot
 											}
 											break;
 										}
-									case "376": // ":End of MOTD command"
+									case "376": // End of MOTD command
 										{
 											// tell NickServ who we are
 											SendMessageToServer(writer, $"PRIVMSG nickserv IDENTIFY {botSettings.NickServPassword}");
-											
+
 											// we've successfully connected to irc - now start our timer
 											SiteTimer(writer);
 											break;
@@ -184,46 +181,43 @@ namespace aitherBot
 
 		public static async Task<List<Announce>?> ReadAPI()
 		{
-			while (true)
+			try
 			{
-				try
+				HttpResponseMessage response = await client.GetAsync($"api/torrents?api_token={apiKey}");
+				if (response.IsSuccessStatusCode)
 				{
-					HttpResponseMessage response = await client.GetAsync($"api/torrents?api_token={apiKey}");
-					if (response.IsSuccessStatusCode)
+					string result = response.Content.ReadAsStringAsync().Result;
+					Torrent? torrents = JsonConvert.DeserializeObject<Torrent>(result);
+					if (torrents != null)
 					{
-						string result = response.Content.ReadAsStringAsync().Result;
-						Torrent? torrents = JsonConvert.DeserializeObject<Torrent>(result);
-						if (torrents != null)
+						foreach (Datum data in torrents.Data)
 						{
-							foreach (Datum data in torrents.Data)
+							if (!HasTorrentBeenAnnounced(data.Attributes.Name))
 							{
-								if (!HasTorrentBeenAnnounced(data.Attributes.Name))
+								Announce announce = new()
 								{
-									Announce announce = new()
-									{
-										Category = data.Attributes.Category,
-										Name = data.Attributes.Name,
-										Size = FormatBytes(Convert.ToInt64(data.Attributes.Size)),
-										Type = data.Attributes.Type,
-										Resolution = data.Attributes.Resolution ?? null,
-										Uploader = data.Attributes.Uploader.ToString(),
-										Url = data.Attributes.Download_link,
-										FreeLeech = data.Attributes.Freeleech,
-										DoubleUpload = data.Attributes.Double_upload.ToString() == "0" ? "No" : "Yes"
-									};
-									announcements.Add(announce);
-								}
+									Category = data.Attributes.Category,
+									Name = data.Attributes.Name,
+									Size = FormatBytes(Convert.ToInt64(data.Attributes.Size)),
+									Type = data.Attributes.Type,
+									Resolution = data.Attributes.Resolution ?? null,
+									Uploader = data.Attributes.Uploader,
+									Url = data.Attributes.Download_link,
+									FreeLeech = data.Attributes.Freeleech,
+									DoubleUpload = data.Attributes.Double_upload.ToString() == "0" ? "No" : "Yes"
+								};
+								announcements.Add(announce);
 							}
 						}
 					}
-					return announcements;
+				}
+				return announcements;
 
-				}
-				catch (Exception ex)
-				{
-					Debug.Write(ex.ToString());
-					return null;
-				}
+			}
+			catch (Exception ex)
+			{
+				logger.Error(ex.Message);
+				return null;
 			}
 		}
 
@@ -233,8 +227,15 @@ namespace aitherBot
 		/// <param name="torrent"></param>
 		public static void WriteTorrentNameToFile(string torrent)
 		{
-			using StreamWriter torrentWriter = File.AppendText($@"{AppDomain.CurrentDomain.BaseDirectory}{torrentHistoryLogFileName}");
-			torrentWriter.WriteLine(torrent);
+			try
+			{
+				using StreamWriter torrentWriter = File.AppendText($@"{AppDomain.CurrentDomain.BaseDirectory}{torrentHistoryLogFileName}");
+				torrentWriter.WriteLine(torrent);
+			}
+			catch (Exception ex)
+			{
+				logger.Error(ex.Message);
+			}
 		}
 
 		/// <summary>
@@ -244,12 +245,19 @@ namespace aitherBot
 		/// <param name="torrent"></param>
 		public static void AnnounceTorrent(StreamWriter writer, Announce torrent)
 		{
-			// post new torrent to #announce channel
-			logger.Info($"Announcing {torrent.Name}");
-			SendMessageToServer(writer, $"PRIVMSG {announceChannel} :Category [{torrent.Category}] Type [{torrent.Type}] Name [{torrent.Name}] Freeleech [{torrent.FreeLeech}] Double Upload [{torrent.DoubleUpload}] Size [{torrent.Size}] Uploader [{torrent.Uploader}] Url [{torrent.Url}]");
+			try
+			{
+				// post new torrent to #announce channel
+				logger.Info($"Announcing {torrent.Name}");
+				SendMessageToServer(writer, $"PRIVMSG {announceChannel} :Category [{torrent.Category}] Type [{torrent.Type}] Name [{torrent.Name}] Freeleech [{torrent.FreeLeech}] Double Upload [{torrent.DoubleUpload}] Size [{torrent.Size}] Uploader [{torrent.Uploader}] Url [{torrent.Url}]");
 
-			// write to the torrentHistory.log file
-			WriteTorrentNameToFile(torrent.Name);
+				// write to the torrentHistory.log file
+				WriteTorrentNameToFile(torrent.Name);
+			}
+			catch (Exception ex)
+			{
+				logger.Error(ex.Message);
+			}
 		}
 
 		/// <summary>
@@ -259,16 +267,24 @@ namespace aitherBot
 		/// <returns></returns>
 		public static bool HasTorrentBeenAnnounced(string torrent)
 		{
-			string filePath = $@"{AppDomain.CurrentDomain.BaseDirectory}{torrentHistoryLogFileName}";
-			List<string> torrents = File.ReadAllLines(filePath).TakeLast(500).ToList();
-			foreach (string item in torrents)
+			try
 			{
-				if (item.ToLower().Contains(torrent.ToLower()))
+				string filePath = $@"{AppDomain.CurrentDomain.BaseDirectory}{torrentHistoryLogFileName}";
+				List<string> torrents = File.ReadAllLines(filePath).TakeLast(500).ToList();
+				foreach (string item in torrents)
 				{
-					return true;
+					if (item.ToLower().Contains(torrent.ToLower()))
+					{
+						return true;
+					}
 				}
+				return false;
 			}
-			return false;
+			catch (Exception ex)
+			{
+				logger.Error(ex.Message);
+				return true;
+			}
 		}
 
 		/// <summary>
@@ -314,15 +330,23 @@ namespace aitherBot
 
 		private static string FormatBytes(Int64 bytes)
 		{
-			string[] Suffix = { "B", "kB", "MB", "GB", "TB" };
-			int i;
-			double dblSByte = bytes;
-			for (i = 0; i < Suffix.Length && bytes >= 1024; i++, bytes /= 1024)
+			try
 			{
-				dblSByte = bytes / 1024.0;
-			}
+				string[] Suffix = { "B", "kB", "MB", "GB", "TB" };
+				int i;
+				double dblSByte = bytes;
+				for (i = 0; i < Suffix.Length && bytes >= 1024; i++, bytes /= 1024)
+				{
+					dblSByte = bytes / 1024.0;
+				}
 
-			return String.Format("{0:0.##} {1}", dblSByte, Suffix[i]);
+				return String.Format("{0:0.##} {1}", dblSByte, Suffix[i]);
+			}
+			catch (Exception ex)
+			{
+				logger.Error(ex.Message);
+				return null;
+			}
 		}
 	}
 }
