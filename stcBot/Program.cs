@@ -212,7 +212,7 @@ namespace stcBot
 										Type = data.Attributes.Type,
 										Resolution = data.Attributes.Resolution ?? null,
 										Uploader = data.Attributes.Uploader,
-										Url = data.Attributes.Download_link[33..],
+										Url = data.Attributes.Download_link[..^33],
 										FreeLeech = data.Attributes.Freeleech,
 										DoubleUpload = data.Attributes.Double_upload.ToString() == "0" ? "No" : "Yes"
 									};
