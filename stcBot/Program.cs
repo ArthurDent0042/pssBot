@@ -1,8 +1,8 @@
-﻿using stcBot.Models;
-using Microsoft.Extensions.Configuration;
+﻿using Microsoft.Extensions.Configuration;
 using Newtonsoft.Json;
 using NLog;
 using NLog.Extensions.Logging;
+using stcBot.Models;
 using System.Net.Sockets;
 
 namespace stcBot
@@ -133,7 +133,7 @@ namespace stcBot
 							{
 								switch (d[1])
 								{
-									case "JOIN":    // User has joined a channel
+									case "JOIN": // User has joined a channel
 										{
 											string user = data.Split('!')[0][1..];
 											channel = d[2][1..];
@@ -212,7 +212,7 @@ namespace stcBot
 										Type = data.Attributes.Type,
 										Resolution = data.Attributes.Resolution ?? null,
 										Uploader = data.Attributes.Uploader,
-										Url = data.Attributes.Download_link,
+										Url = data.Attributes.Download_link[33..],
 										FreeLeech = data.Attributes.Freeleech,
 										DoubleUpload = data.Attributes.Double_upload.ToString() == "0" ? "No" : "Yes"
 									};
