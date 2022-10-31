@@ -9,18 +9,18 @@ namespace stcBot
 {
 	public class IRCbot
 	{
-		private static readonly Logger logger = LogManager.GetCurrentClassLogger();
 		private static string apiKey = string.Empty;
 		private static string announceChannel = string.Empty;
 		private static BotSettings? botSettings;
 		private static string torrentHistoryLogFileName = string.Empty;
 		private static string previousApiResult = string.Empty;
 		private static List<Announce> announcements = new();
-		private static readonly IConfigurationRoot config = new ConfigurationBuilder()
+        private static readonly IConfigurationRoot config = new ConfigurationBuilder()
 						.SetBasePath(Directory.GetCurrentDirectory())
 						.AddJsonFile(path: "appSettings.json", optional: false, reloadOnChange: true)
 						.Build();
-		private static readonly HttpClient client = new()
+        public static readonly Logger logger = LogManager.Setup().LoadConfigurationFromSection(config).GetCurrentClassLogger();
+        private static readonly HttpClient client = new()
 		{
 			BaseAddress = new Uri(config.GetValue<string>("APIBaseAddress"))
 		};
@@ -46,8 +46,8 @@ namespace stcBot
 			// Announce channel
 			announceChannel = config.GetValue<string>("announceChannel");
 
-			// name of torrent history logfile
-			torrentHistoryLogFileName = config.GetValue<string>("torrentHistoryLogFilename");
+            // name of torrent history logfile
+            torrentHistoryLogFileName = config.GetValue<string>("torrentHistoryLogFilename");
 
 			// verify history logfile exists
 			if (!File.Exists($@"{AppDomain.CurrentDomain.BaseDirectory}{torrentHistoryLogFileName}"))
@@ -55,15 +55,9 @@ namespace stcBot
 				File.Create($@"{AppDomain.CurrentDomain.BaseDirectory}{torrentHistoryLogFileName}").Close();
 			}
 
-			// Load NLog config
-			LogManager.Configuration = new NLogLoggingConfiguration(config.GetSection("NLog"));
-
 			// Let's fire up the bot
-			_ = new IRCbot();
 			await Start();
 		}
-
-		public IRCbot() { }
 
 		/// <summary>
 		/// Used to fire off actions we want to perform at specific intervals
@@ -78,14 +72,14 @@ namespace stcBot
 			timer.Start();
 		}
 
-		public static void HandleTimerElapsed(StreamWriter writer)
+		public async static Task HandleTimerElapsed(StreamWriter writer)
 		{
 			ReadAPI().Wait();
 			if (announcements.Any())
 			{
 				foreach (Announce item in announcements)
 				{
-					AnnounceTorrent(writer, item);
+					await AnnounceTorrent(writer, item);
 
 					// Also check the size of the torrentHistory.log file
 					// If it's too large, we want to cut it down a bit
@@ -175,7 +169,6 @@ namespace stcBot
 					// shows the exception, sleeps for a little while and then tries to establish a new connection to the IRC server
 					logger.Error(ex.ToString());
 					Thread.Sleep(5000);
-					_ = new IRCbot();
 					await Start();
 
 					retry = ++retryCount <= botSettings.MaxRetries;
@@ -217,14 +210,15 @@ namespace stcBot
 										DoubleUpload = data.Attributes.Double_upload.ToString() == "0" ? "No" : "Yes"
 									};
 									announcements.Add(announce);
-								}
-							}
+
+                                    // write to the torrentHistory.log file
+                                    WriteTorrentIdToFile(data.Id);
+                                }
+                            }
 						}
 					}
 				}
-
 				return announcements;
-
 			}
 			catch (Exception ex)
 			{
@@ -234,10 +228,10 @@ namespace stcBot
 		}
 
 		/// <summary>
-		/// Write name of torrent announced to logfile
+		/// Write Id of torrent announced to logfile
 		/// </summary>
 		/// <param name="torrent"></param>
-		public static void WriteTorrentNameToFile(string torrent)
+		public static void WriteTorrentIdToFile(string torrent)
 		{
 			try
 			{
@@ -255,16 +249,13 @@ namespace stcBot
 		/// </summary>
 		/// <param name="writer"></param>
 		/// <param name="torrent"></param>
-		public static void AnnounceTorrent(StreamWriter writer, Announce torrent)
+		public async static Task AnnounceTorrent(StreamWriter writer, Announce torrent)
 		{
 			try
 			{
 				// post new torrent to #announce channel
 				logger.Info($"Announcing {torrent.Name}");
 				SendMessageToServer(writer, $"PRIVMSG {announceChannel} :Category [{torrent.Category}] Type [{torrent.Type}] Name [{torrent.Name}] Freeleech [{torrent.FreeLeech}] Double Upload [{torrent.DoubleUpload}] Size [{torrent.Size}] Uploader [{torrent.Uploader}] Url [{torrent.Url}]");
-
-				// write to the torrentHistory.log file
-				WriteTorrentNameToFile(torrent.Id);
 			}
 			catch (Exception ex)
 			{
