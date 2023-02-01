@@ -98,6 +98,8 @@ namespace stcBot
 			{
 				try
 				{
+					// Clicker - I'm pretty sure the below line will be needed
+					// //ServicePointManager.SecurityProtocol = SecurityProtocolType.Tls12 | SecurityProtocolType.Tls11 | SecurityProtocolType.Tls;
 					using TcpClient client = new(botSettings.IrcServer, botSettings.IrcPort);
 					using NetworkStream stream = client.GetStream();
 					using StreamReader reader = new(stream);
