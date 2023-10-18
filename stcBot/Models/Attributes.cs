@@ -15,7 +15,7 @@
 		public long Size { get; set; }
 		public int Num_file { get; set; }
 		public string? Freeleech { get; set; }
-		public int Double_upload { get; set; }
+		public bool Double_upload { get; set; }
 		public int @Internal { get; set; }
 		public string? Uploader { get; set; }
 		public int Seeders { get; set; }
