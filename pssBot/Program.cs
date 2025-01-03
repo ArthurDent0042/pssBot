@@ -69,7 +69,7 @@ namespace pssBot
 			{
 				AutoReset = true
 			};
-			timer.Elapsed += (source, e) => HandleTimerElapsed(writer);
+			timer.Elapsed += async (source, e) => await HandleTimerElapsed(writer);
 			timer.Start();
 		}
 
