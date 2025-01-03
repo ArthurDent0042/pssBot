@@ -1,4 +1,4 @@
-﻿namespace stcBot.Models
+﻿namespace pssBot.Models
 {
 	public class Torrent
 	{

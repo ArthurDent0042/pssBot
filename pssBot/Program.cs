@@ -2,10 +2,10 @@
 using Newtonsoft.Json;
 using NLog;
 using NLog.Extensions.Logging;
-using stcBot.Models;
+using pssBot.Models;
 using System.Net.Sockets;
 
-namespace stcBot
+namespace pssBot
 {
 	public class IRCbot
 	{
@@ -54,6 +54,7 @@ namespace stcBot
 			{
 				File.Create($@"{AppDomain.CurrentDomain.BaseDirectory}{torrentHistoryLogFileName}").Close();
 			}
+			
 
 			// Let's fire up the bot
 			await Start();
@@ -72,7 +73,7 @@ namespace stcBot
 			timer.Start();
 		}
 
-		public async static Task HandleTimerElapsed(StreamWriter writer)
+		public static async Task HandleTimerElapsed(StreamWriter writer)
 		{
 			ReadAPI().Wait();
 			if (announcements.Any())
@@ -205,9 +206,9 @@ namespace stcBot
 										Type = data.Attributes.Type,
 										Resolution = data.Attributes.Resolution ?? null,
 										Uploader = data.Attributes.Uploader,
-										Url = data.Attributes.Download_link[..^33],
+										Url = data.Attributes.Download_link[..^33].Replace("torrent", "torrents"),
 										FreeLeech = data.Attributes.Freeleech,
-										DoubleUpload = data.Attributes.Double_upload.ToString() == "0" ? "No" : "Yes"
+										DoubleUpload = data.Attributes.Double_upload.ToString() == "1" ? "Yes" : "No"
 									};
 									announcements.Add(announce);
 
@@ -255,7 +256,7 @@ namespace stcBot
 			{
 				// post new torrent to #announce channel
 				logger.Info($"Announcing {torrent.Name}");
-				SendMessageToServer(writer, $"PRIVMSG {announceChannel} :Category [{torrent.Category}] Type [{torrent.Type}] Name [{torrent.Name}] Freeleech [{torrent.FreeLeech}] Double Upload [{torrent.DoubleUpload}] Size [{torrent.Size}] Uploader [{torrent.Uploader}] Url [{torrent.Url}]");
+				SendMessageToServer(writer, $"PRIVMSG {announceChannel} :Category [{torrent.Category}] Type [{torrent.Type}] Name [{torrent.Name}] Resolution [{torrent.Resolution}] Freeleech [{torrent.FreeLeech}] Double Upload [{torrent.DoubleUpload}] Size [{torrent.Size}] Uploader [{torrent.Uploader}] Url [{torrent.Url}]");
 			}
 			catch (Exception ex)
 			{
